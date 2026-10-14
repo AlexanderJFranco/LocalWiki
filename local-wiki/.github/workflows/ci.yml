@@ -1,0 +1,78 @@
+name: Cross-Platform CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+          - ubuntu-22.04
+
+    steps:
+      # Download repository files.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install libraries required by Tauri on Linux.
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libxdo-dev \
+            libssl-dev
+
+      # Install Node.js.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Install Rust.
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Cache Rust compilation artifacts.
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      # Install frontend dependencies.
+      - name: Install frontend
+        run: npm ci
+
+      # Ensure Rust compiles.
+      - name: Check Rust
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml
+
+      # Run unit tests.
+      - name: Test Rust
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      # Enforce code formatting.
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+        working-directory: src-tauri
+
+      # Run Rust's static analysis.
+      - name: Run Clippy
+        run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings

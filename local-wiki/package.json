@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "rust:check": "cargo check --locked --manifest-path src-tauri/Cargo.toml",
+    "rust:test": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
+    "setup:check": "npm run rust:check"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
