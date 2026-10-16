@@ -3,6 +3,18 @@ use std::path::Path;
 
 use crate::domain::explorer::ExplorerEntry;
 
+
+//Read a single file
+pub fn read_file(path: &Path) -> Result<String, String> {
+
+    // Read the file and convert its contents into a String.
+    // read_to_string expects valid UTF-8 text.
+    //
+    // ? extracts the text if successful or returns the error.
+    fs::read_to_string(path)
+        .map_err(|error| error.to_string())
+}
+
 // Reads only the immediate children of a directory.
 pub fn read_directory(
     directory: &Path,
@@ -52,4 +64,55 @@ pub fn read_directory(
     });
 
     Ok(entries)
+}
+
+//UNIT TESTS
+
+
+
+#[cfg(test)]
+mod tests {
+    // Import functions and types from the parent module.
+    use super::*;
+
+    #[test]
+    fn read_file_returns_contents() {
+
+        // Create a unique temporary directory.
+        // tempfile automatically deletes it after the test.
+        let directory = tempfile::tempdir().unwrap();
+
+        // Construct a path inside the temporary directory.
+        let file_path = directory.path().join("example.md");
+        dbg!(&file_path);
+        // Create a sample Markdown file.
+        fs::write(&file_path, "# Hello Local Wiki").unwrap();
+
+        // ACT: Execute the function we're testing.
+        let result = read_file(&file_path);
+        dbg!(&result);
+        
+
+        // ASSERT: Verify that reading succeeded.
+        assert!(result.is_ok());
+
+        // ASSERT: Verify the returned contents.
+        assert_eq!(result.unwrap(), "# Hello Local Wiki");
+    }
+
+    #[test]
+    fn read_file_returns_error_for_missing_file() {
+
+        // Create an isolated temporary directory.
+        let directory = tempfile::tempdir().unwrap();
+
+        // Reference a file that does not exist.
+        let file_path = directory.path().join("missing.md");
+
+        // Attempt to read it.
+        let result = read_file(&file_path);
+
+        // Verify that the function returned an error.
+        assert!(result.is_err());
+    }
 }

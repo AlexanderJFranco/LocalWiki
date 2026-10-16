@@ -1,10 +1,13 @@
+//Imports
+
 mod commands;
 mod domain;
 mod repositories;
-mod services;
-mod state;
+mod services;           
+mod state;              //Manage Directory state
+mod menu;               //Manage sub-menus
 
-use commands::libraries::{list_directory, open_library};
+use commands::libraries::{list_directory, open_library, read_document};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -17,33 +20,19 @@ pub fn run() {
         // Keep this if you installed the dialog plugin.
         .plugin(tauri_plugin_dialog::init())
 
-        // Keep any existing starter plugins, too.
-
+        // Configure the native desktop menu.
+        .setup(|app| {
+            menu::setup_menu(app.handle())?;
+            Ok(())
+        })
         // Expose these Rust commands to React.
         .invoke_handler(tauri::generate_handler![
             open_library,
             list_directory,
-            greet
+            read_document
         ])
 
         .run(tauri::generate_context!())
         .expect("error while running Tauri");
 }
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-/*
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-
-*/

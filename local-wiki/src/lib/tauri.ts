@@ -11,3 +11,11 @@ export async function listDirectory(relativePath: string = " "
     ): Promise<ExplorerEntry[]>{
         return invoke<ExplorerEntry[]>("list_directory", {relativePath});
     }
+
+export async function readDocument(
+        relativePath: string
+    ): Promise<string>{
+        return invoke<string>("read_document",{
+            relativePath,
+        });
+    }
