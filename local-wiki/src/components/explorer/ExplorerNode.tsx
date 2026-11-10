@@ -19,7 +19,7 @@ export function ExplorerNode({
     async function HandleExpandDirectoryNode(path: string){
         const t = listDirectory(path);
         setIsExpanded(!isExpanded);
-        const dirEntries = await listDirectory("");
+        const dirEntries = await listDirectory(path);
         setEntries(dirEntries)
         console.log(t);
     }
@@ -48,7 +48,7 @@ export function ExplorerNode({
                         <div className="px-2">
                             <ExplorerNode
                             entry={child}
-                            onFileSelect={onFileSelect}
+                            onFileSelect={onFileSelect}//Pass main panel file assignment function
                             />
                         </div>
                         
