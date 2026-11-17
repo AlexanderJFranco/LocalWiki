@@ -19,3 +19,24 @@ export async function readDocument(
             relativePath,
         });
     }
+
+
+export async function writeDocument(
+    relativePath: string,
+    content: string
+) : Promise<void> {
+    await invoke<void>("write_document", {
+        relativePath,
+        content,
+    });
+    
+}
+
+
+export async function createDocument(
+  relativePath: string
+): Promise<void> {
+  await invoke<void>("create_document", {
+    relativePath,
+  });
+}

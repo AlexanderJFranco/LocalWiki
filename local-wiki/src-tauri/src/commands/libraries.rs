@@ -7,6 +7,67 @@ use crate::services::libraries as library_service;
 use crate::domain::explorer::ExplorerEntry;
 use crate::repositories::filesystem;
 
+use std::fs::OpenOptions;
+
+
+//Called when creating a document within application
+
+#[tauri::command]
+pub fn create_document(
+    state: State<'_, AppState>,
+    relative_path: String,
+) -> Result<(), String> {
+    let path = Path::new(&relative_path);
+
+    // Only allow files inside the active library.
+    if path.is_absolute()
+        || path.components().any(|component| {
+            !matches!(component, Component::Normal(_))
+        })
+    {
+        return Err("Invalid document path".into());
+    }
+
+    // Restrict creation to Markdown files.
+    if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+        return Err("Document must have a .md extension".into());
+    }
+
+    let guard = state
+        .active_library
+        .lock()
+        .map_err(|e| e.to_string())?;
+
+    let library = guard
+        .as_ref()
+        .ok_or("No library is currently open")?;
+
+    let root = library.canonicalize()
+        .map_err(|e| e.to_string())?;
+
+    let destination = root.join(path);
+
+    let parent = destination
+        .parent()
+        .ok_or("Invalid parent directory")?
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+
+    // Also protects against symlinked directories escaping the library.
+    if !parent.starts_with(&root) {
+        return Err("Cannot create a file outside the library".into());
+    }
+
+    // create_new prevents accidentally overwriting existing files.
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .map_err(|e| format!("Failed to create document: {e}"))?;
+
+    Ok(())
+}
+
 //Called when React asks to open a workspace
 #[tauri::command]
 pub fn open_library(
@@ -22,6 +83,51 @@ pub fn open_library(
     *active = Some(root);
     Ok(())
 }
+
+#[tauri::command]
+pub fn write_document(
+    state: State<'_,AppState>,
+    relative_path: String,
+    content: String,
+    ) -> Result<(), String>{
+
+        // 1. Retrieve the currently opened library.
+        let library_guard = state
+            .active_library
+            .lock()
+            .map_err(|_| "Failed to lock library state".to_string())?;
+
+        let library_path = library_guard
+            .as_ref()
+            .ok_or("No library is currently open")?;
+
+        // 2. Resolve the library's actual filesystem path.
+        let library_root = library_path
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+
+        // 3. Resolve the requested document.
+        let document_path = library_root
+            .join(&relative_path)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+
+        // 4. Prevent writes outside the active library.
+        if !document_path.starts_with(&library_root) {
+            return Err("Document is outside the active library".into());
+        }
+
+        // 5. Only permit writing existing files.
+        if !document_path.is_file() {
+            return Err("Document does not exist".into());
+        }
+
+        // 6. Write the updated Markdown.
+        fs::write(&document_path, content)
+            .map_err(|e| format!("Failed to save document: {e}"))?;
+
+        Ok(())
+    }
 
 //Called when React needs a directory's children
 #[tauri::command]

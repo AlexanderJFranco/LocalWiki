@@ -7,7 +7,7 @@ mod services;
 mod state;              //Manage Directory state
 mod menu;               //Manage sub-menus
 
-use commands::libraries::{list_directory, open_library, read_document};
+use commands::libraries::{list_directory, open_library, read_document, write_document, create_document};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -29,7 +29,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_library,
             list_directory,
-            read_document
+            read_document,
+            write_document,
+            create_document,
         ])
 
         .run(tauri::generate_context!())

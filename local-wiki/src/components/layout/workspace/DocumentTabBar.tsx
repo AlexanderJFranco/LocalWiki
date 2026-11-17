@@ -1,6 +1,9 @@
 
 import { useWorkspace } from "@/contexts/WorkspaceContext";
 
+
+
+
 export function DocumentTabBar() {
   const {
     documents,
@@ -8,6 +11,25 @@ export function DocumentTabBar() {
     activateDocument,
     closeDocument,
   } = useWorkspace();
+
+  async function handleCloseDocument(
+  id: string,
+  content: string,
+  savedContent: string
+) {
+  const isDirty = content !== savedContent;
+
+  if (isDirty) {
+    const shouldClose = await window.confirm(
+      "This document has unsaved changes. Close without saving?"
+    );
+
+    if (!shouldClose) return;
+  }
+
+  closeDocument(id);
+}
+
 
   return (
     <div className="flex overflow-x-auto border-b border-gray-700 bg-gray-900">
@@ -47,14 +69,23 @@ export function DocumentTabBar() {
             </button>
 
             {/* Close document */}
+           
             <button
               type="button"
-              onClick={() => closeDocument(doc.id)}
-              className="hover:text-red-400"
+              onClick={(event) => {
+                event.stopPropagation();
+
+                handleCloseDocument(
+                  doc.id,
+                  doc.content,
+                  doc.savedContent
+                );
+              }}
               aria-label={`Close ${doc.name}`}
             >
               ×
             </button>
+
           </div>
         );
       })}

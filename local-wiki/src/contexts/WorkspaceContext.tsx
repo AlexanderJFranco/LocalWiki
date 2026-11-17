@@ -9,8 +9,8 @@ import {
 } from "react";
 
 import type { ExplorerEntry } from "@/types/explorer";
-import type { DocumentSession } from "@/types/document";
-import { readDocument } from "@/lib/tauri";
+import type { DocumentSession, ViewMode } from "@/types/document";
+import { readDocument, writeDocument } from "@/lib/tauri";
 
 interface WorkspaceState {
   documents: DocumentSession[];
@@ -24,6 +24,19 @@ type WorkspaceAction =
   | { type: "FAILED"; id: string; requestId: number; error: string }
   | { type: "EDIT"; id: string; content: string }
   | { type: "CLOSE"; id: string }
+  | { type: "SAVE_STARTED"; id: string; requestId: number }
+  | {
+      type: "SAVED";
+      id: string;
+      requestId: number;
+      savedContent: string;
+  }
+  | {
+    type: "SAVE_FAILED";
+    id: string;
+    requestId: number;
+    error: string;
+  }
   | {
     type: "SET_VIEW_MODE";
     id: string;
@@ -125,6 +138,51 @@ function workspaceReducer(
       };
     }
 
+    case "SAVE_STARTED": return {
+    ...state,
+    documents: state.documents.map((doc) =>
+      doc.id === action.id &&
+      doc.requestId === action.requestId
+        ? {
+            ...doc,
+            isSaving: true,
+            saveError: null,
+          }
+        : doc
+    ),
+  };
+
+  case "SAVED":
+  return {
+    ...state,
+    documents: state.documents.map((doc) =>
+      doc.id === action.id &&
+      doc.requestId === action.requestId
+        ? {
+            ...doc,
+            savedContent: action.savedContent,
+            isSaving: false,
+            saveError: null,
+          }
+        : doc
+    ),
+  };
+
+case "SAVE_FAILED":
+  return {
+    ...state,
+    documents: state.documents.map((doc) =>
+      doc.id === action.id &&
+      doc.requestId === action.requestId
+        ? {
+            ...doc,
+            isSaving: false,
+            saveError: action.error,
+          }
+        : doc
+    ),
+  };
+
     default:
       return state;
   }
@@ -138,6 +196,7 @@ interface WorkspaceContextValue {
   editDocument: (id: string, content: string) => void;
   closeDocument: (id: string) => void;
   setViewMode: (id: string, mode: ViewMode) => void;
+  saveDocument: (id: string) => Promise<void>;
 }
 
 const WorkspaceContext =
@@ -165,6 +224,10 @@ export function WorkspaceProvider({
   // Tracks documents already opened, including pending reads.
   const openIds = useRef(new Set<string>());
   const nextRequestId = useRef(0);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const savingIds = useRef(new Set<string>());
 
   const openDocument = useCallback(async (file: ExplorerEntry) => {
     if (file.isDirectory) return;
@@ -189,7 +252,9 @@ export function WorkspaceProvider({
         savedContent: "",
         viewMode: "source",
         isLoading: true,
+        isSaving: false,
         error: null,
+        saveError: null,
         requestId,
       },
     });
@@ -217,14 +282,80 @@ export function WorkspaceProvider({
   };
 
   const closeDocument = (id: string) => {
-    openIds.current.delete(id);
-    dispatch({ type: "CLOSE", id });
-  };
+  if (savingIds.current.has(id)) {
+    return;
+  }
+
+  openIds.current.delete(id);
+  dispatch({ type: "CLOSE", id });
+};
 
   const activeDocument =
     state.documents.find(
       (doc) => doc.id === state.activeDocumentId
     ) ?? null;
+
+  
+const saveDocument = useCallback(async (id: string): Promise<void> => {
+  const document = stateRef.current.documents.find(
+    (doc) => doc.id === id
+  );
+
+  // Ignore missing or not-yet-loaded documents.
+  if (!document || document.isLoading || document.error) {
+    return;
+  }
+
+  // Prevent overlapping saves of the same file.
+  if (savingIds.current.has(id)) {
+    return;
+  }
+
+  // Nothing new to save.
+  if (document.content === document.savedContent) {
+    return;
+  }
+
+  // Capture the exact version being written.
+  const contentToSave = document.content;
+  const requestId = document.requestId;
+
+  savingIds.current.add(id);
+
+  dispatch({
+    type: "SAVE_STARTED",
+    id,
+    requestId,
+  });
+
+  try {
+    // Write Markdown through the Tauri bridge.
+    await writeDocument(
+      document.relativePath,
+      contentToSave
+    );
+
+    // Confirm precisely which content was saved.
+    dispatch({
+      type: "SAVED",
+      id,
+      requestId,
+      savedContent: contentToSave,
+    });
+  } catch (error) {
+    dispatch({
+      type: "SAVE_FAILED",
+      id,
+      requestId,
+      error: String(error),
+    });
+
+    throw error;
+  } finally {
+    savingIds.current.delete(id);
+  }
+}, []);
+
 
   return (
     <WorkspaceContext.Provider
@@ -236,6 +367,7 @@ export function WorkspaceProvider({
         editDocument,
         closeDocument,
         setViewMode,
+        saveDocument,
       }}
     >
       {children}

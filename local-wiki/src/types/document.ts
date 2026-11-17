@@ -14,6 +14,10 @@ export interface DocumentSession {
 
   viewMode: ViewMode;
   isLoading: boolean;
+  isSaving: boolean;
+  saveError: string | null;
   error: string | null;
   requestId: number;
+
+  
 }

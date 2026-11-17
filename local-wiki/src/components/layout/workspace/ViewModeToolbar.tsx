@@ -11,9 +11,12 @@ export function ViewModeToolbar({
   onModeChange,
 }: ViewModeToolbarProps) {
   return (
+      
+    
     <div className="flex justify-end border-b border-gray-700 bg-gray-900 p-2">
+      
       <div className="flex gap-1 rounded-md bg-gray-800 p-1">
-
+    
         <button
           type="button"
           onClick={() => onModeChange("source")}

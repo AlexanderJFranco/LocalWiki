@@ -16,6 +16,7 @@ import type { ExplorerEntry } from "../../types/explorer";
 // Our reusable button component.
 import { OpenLibraryButton } from "../features/OpenLibraryButton";
 import { ExplorerNode } from "./ExplorerNode";
+import { createDocument } from "@/lib/tauri";
 
 // FUTURE:
 // Import ExplorerNode when you create the component.
@@ -65,6 +66,12 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
   //
   // Empty string means there is currently no error.
   const [error, setError] = useState("");
+
+  // Refresh the files and folders at the library root.
+  async function refreshEntries() {
+    const rootEntries = await listDirectory("");
+    setEntries(rootEntries);
+  }
 
 
   // ========================================================
@@ -123,7 +130,7 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
       //
       // Rust returns ExplorerEntry objects for each
       // file and folder it discovers.
-      const rootEntries = await listDirectory("");
+      await refreshEntries();
 
 
       // Save the successfully opened library path.
@@ -132,16 +139,6 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
       // the current library.
       setLibraryPath(selectedPath);
 
-
-      // Save the root-level files and folders.
-      //
-      // IMPORTANT FOR EXPLORERNODE:
-      //
-      // FileExplorer will own ONLY these root entries.
-      //
-      // Individual ExplorerNode components will eventually
-      // load and manage the contents of nested folders.
-      setEntries(rootEntries);
 
     } catch (err) {
 
@@ -235,17 +232,77 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
   // Therefore, handleOpenDirectory has been removed.
 
 
+
+async function handleCreateDocument() {
+  // Only permit creation when a library is open.
+  if (!libraryPath) {
+    window.alert("Please open a library first.");
+    return;
+  }
+
+  const input = window.prompt(
+    "New Markdown filename:",
+    "Untitled.md"
+  );
+
+  if (input === null) return;
+
+  const filename = input.trim();
+
+  if (
+    !filename ||
+    filename === "." ||
+    filename === ".." ||
+    filename.includes("/") ||
+    filename.includes("\\")
+  ) {
+    window.alert("Please enter a valid filename.");
+    return;
+  }
+
+  const relativePath = filename.endsWith(".md")
+    ? filename
+    : `${filename}.md`;
+
+  try {
+    // 1. Create the file in the active library.
+    await createDocument(relativePath);
+
+    // 2. Reload the root directory into React state.
+    await refreshEntries();
+
+    // 3. Open the new file in CodeMirror.
+    onFileSelect({
+      name: relativePath,
+      relativePath,
+      isDirectory: false,
+    });
+
+  } catch (error) {
+    window.alert(`Failed to create file: ${error}`);
+  }
+}
+
+
+
   // ========================================================
-  // 5. RENDER FILE EXPLORER
+  // 6 RENDER FILE EXPLORER
   // ========================================================
 
   return (
     <div className="flex h-full flex-col gap-2 p-3">
-
+      <button
+  type="button"
+  onClick={handleCreateDocument}
+  className="rounded px-2 py-1 text-sm hover:bg-gray-700"
+  title="New Markdown File"
+>
+  + New File
+</button>
       {/* Display the panel heading. */}
       {libraryPath.length == 0 && 
       <h2 className="font-semibold whitespace-nowrap">
-        File Explorer
+       
         <OpenLibraryButton onClick={handleOpenLibrary} />
       </h2>
       }
