@@ -8,7 +8,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 
 // Our custom TypeScript functions that communicate with Rust.
-import { openLibrary, listDirectory } from "../../lib/tauri";
+import { openLibrary, listDirectory, checkLibraryDirectories, initializeLibraryDirectories } from "../../lib/tauri";
 
 // The structure of a file or folder returned by Rust.
 import type { ExplorerEntry } from "../../types/explorer";
@@ -16,7 +16,9 @@ import type { ExplorerEntry } from "../../types/explorer";
 // Our reusable button component.
 import { OpenLibraryButton } from "../features/OpenLibraryButton";
 import { ExplorerNode } from "./ExplorerNode";
-import { createDocument } from "@/lib/tauri";
+import { createDocument, deleteEntry, renameEntry } from "@/lib/tauri";
+import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { createDefinition } from "@/lib/definitions";
 
 // FUTURE:
 // Import ExplorerNode when you create the component.
@@ -61,6 +63,15 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
   // An empty string means no library has been selected yet.
   const [libraryPath, setLibraryPath] = useState("");
 
+  const {documents} = useWorkspace();
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  //Check if directory has supported feature folders
+  const [libraryFeatures, setLibraryFeatures] = useState({
+  definitions: false,
+  tags: false,
+  });
+
 
   // Holds an error message to display when an operation fails.
   //
@@ -72,6 +83,40 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
     const rootEntries = await listDirectory("");
     setEntries(rootEntries);
   }
+
+
+async function handleCreateDefinition() {
+  if (!libraryPath) {
+    window.alert("Open a library first.");
+    return;
+  }
+
+  const term = window.prompt(
+    "Definition name:",
+    ""
+  );
+
+  if (term === null) return;
+
+  try {
+    // Create the definition inside .def/.
+    const relativePath = await createDefinition(term);
+
+    // Refresh root-level explorer entries.
+    await refreshEntries();
+
+    // Open the new definition in CodeMirror.
+    onFileSelect({
+      name: relativePath.split("/").pop()!,
+      relativePath,
+      isDirectory: false,
+    });
+
+  } catch (error) {
+    window.alert(`Failed to create definition: ${error}`);
+  }
+}
+
 
 
   // ========================================================
@@ -86,69 +131,63 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
   //
   // Both actions should execute exactly the same logic.
 
-  async function handleOpenLibrary() {
-    try {
+  
+async function handleOpenLibrary() {
+  try {
+    setError("");
 
-      // Clear any error left over from a previous operation.
-      setError("");
+    // Open the operating system's folder picker.
+    const selectedPath = await open({
+      directory: true,
+      multiple: false,
+      title: "Open Local Wiki Library",
+    });
 
-      // Ask the operating system to show its folder picker.
-      //
-      // await means:
-      // "Wait for the user to select a folder or cancel."
-      const selectedPath = await open({
-        directory: true,
-        multiple: false,
-        title: "Open Local Wiki Library",
-      });
+    if (selectedPath === null) return;
 
+    // Register the library with the Rust backend.
+    await openLibrary(selectedPath);
 
-      // The dialog returns null if the user cancels.
-      //
-      // In that case, leave the current library unchanged.
-      if (selectedPath === null) {
-        return;
+    // Check optional features.
+    let features = await checkLibraryDirectories();
+
+    // Determine which directories need creation.
+    const missing: string[] = [];
+
+    if (!features.definitions) missing.push(".def");
+    if (!features.tags) missing.push(".tags");
+
+    // Offer initialization.
+    if (missing.length > 0) {
+      const shouldCreate = window.confirm(
+        `Missing optional directories:\n\n${missing.join("\n")}` +
+        "\n\nCreate them with example templates?"
+      );
+
+      if (shouldCreate) {
+        await initializeLibraryDirectories(missing);
+
+        // Refresh feature availability after creation.
+        features = await checkLibraryDirectories();
       }
-
-
-      // IMPORTANT:
-      // The folder picker only gives us a path.
-      //
-      // It does not automatically tell our Rust backend
-      // that this directory is now the active library.
-      //
-      // openLibrary() calls the Rust "open_library" command,
-      // which validates and stores the selected directory
-      // in AppState.active_library.
-      await openLibrary(selectedPath);
-
-
-      // Request the immediate children of the library root.
-      //
-      // The empty string "" means:
-      // "Start at the root of the currently opened library."
-      //
-      // Rust returns ExplorerEntry objects for each
-      // file and folder it discovers.
-      await refreshEntries();
-
-
-      // Save the successfully opened library path.
-      //
-      // React will rerender any elements displaying
-      // the current library.
-      setLibraryPath(selectedPath);
-
-
-    } catch (err) {
-
-      // Store the error so React can display it.
-      setError(String(err));
-
-      // Also log it for debugging in development.
-      console.error("Failed to open library:", err);
     }
+
+// Store availability in React state.
+setLibraryFeatures(features);
+    
+
+    // Update the active library in the interface.
+    setLibraryPath(selectedPath);
+
+    // Refresh the explorer, including newly created folders.
+    await refreshEntries();
+
+  } catch (err) {
+    setError(String(err));
+    console.error("Failed to open library:", err);
   }
+}
+
 
 
   // ========================================================
@@ -231,6 +270,70 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
   //
   // Therefore, handleOpenDirectory has been removed.
 
+
+function isEntryOpen(entry: ExplorerEntry): boolean {
+  return documents.some((doc) =>
+    doc.relativePath === entry.relativePath ||
+    (
+      entry.isDirectory &&
+      doc.relativePath.startsWith(entry.relativePath + "/")
+    )
+  );
+}
+
+async function handleRenameEntry(entry: ExplorerEntry) {
+  if (isEntryOpen(entry)) {
+    window.alert("Close affected document tabs before renaming.");
+    return;
+  }
+
+  const input = window.prompt("Rename item:", entry.name);
+  if (input === null) return;
+
+  const newName = input.trim();
+
+  if (
+    !newName ||
+    newName === "." ||
+    newName === ".." ||
+    newName.includes("/") ||
+    newName.includes("\\")
+  ) {
+    window.alert("Invalid name.");
+    return;
+  }
+
+  try {
+    await renameEntry(entry.relativePath, newName);
+    await refreshEntries();
+    setRefreshKey((key) => key + 1);
+  } catch (error) {
+    window.alert(`Rename failed: ${error}`);
+  }
+}
+
+async function handleDeleteEntry(entry: ExplorerEntry) {
+  if (isEntryOpen(entry)) {
+    window.alert("Close affected document tabs before deleting.");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    entry.isDirectory
+      ? `Permanently delete "${entry.name}" and everything inside it?`
+      : `Permanently delete "${entry.name}"?`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await deleteEntry(entry.relativePath);
+    await refreshEntries();
+    setRefreshKey((key) => key + 1);
+  } catch (error) {
+    window.alert(`Delete failed: ${error}`);
+  }
+}
 
 
 async function handleCreateDocument() {
@@ -331,21 +434,25 @@ async function handleCreateDocument() {
 
 
       <div className="flex min-h-0 flex-1 flex-col ">
-
-        {entries.length > 0 && entries.map((entry) => (
-
+        {entries.map((entry) => (
           <div
             key={`${libraryPath}:${entry.relativePath}`}
-            className="flex items-center gap-2 py-1"
+            className="group flex items-center gap-2 py-1"
           >
-            
+            <div className="min-w-0 flex-1">
               <ExplorerNode
-              entry={entry}
-              onFileSelect={onFileSelect}
+               key={`${entry.relativePath}:${refreshKey}`}
+                entry={entry}
+                onFileSelect={onFileSelect}
+                onRename={handleRenameEntry}
+                onDelete={handleDeleteEntry}
               />
-          </div>
+            </div>
 
+            
+          </div>
         ))}
+
 
         
 

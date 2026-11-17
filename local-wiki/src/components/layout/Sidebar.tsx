@@ -13,7 +13,7 @@ export function Sidebar({onFileSelect}: SidebarProps){
 
 
     return(
-        <div className="flex items-center justify-between">
+        <div className="flex h-full w-full min-w-0 flex-col gap-2 overflow-hidden p-3">
             <FileExplorer onFileSelect={onFileSelect}/>
         </div>
     );

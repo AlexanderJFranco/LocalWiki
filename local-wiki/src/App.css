@@ -189,3 +189,72 @@ button {
   text-decoration: underline;
 }
 
+
+/* =========================================
+   LOCAL WIKI — MARKDOWN LINKS
+   ========================================= */
+
+/* Explicit links remain visible. */
+.wiki-markdown .wiki-link-explicit {
+  color: #60a5fa;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Implicit links look like normal text. */
+.wiki-markdown .wiki-link-implicit {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 3px;
+
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+/* Reveal implicit links on hover. */
+.wiki-markdown .wiki-link-implicit:hover {
+  color: #60a5fa;
+  background-color: rgba(59, 130, 246, 0.2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Keyboard accessibility. */
+.wiki-markdown .wiki-link-implicit:focus-visible {
+  color: #60a5fa;
+  background-color: rgba(59, 130, 246, 0.2);
+  text-decoration: underline;
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+
+/* Explicit definition references */
+.wiki-markdown .definition-link-explicit {
+  color: #22c55e;
+  text-decoration: underline;
+  text-decoration-color: #22c55e;
+  text-underline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* Highlight when hovered */
+.wiki-markdown .definition-link-explicit:hover {
+  background-color: rgba(34, 197, 94, 0.2);
+}
+
+/* Future implicit definition references */
+.wiki-markdown .definition-link-implicit {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 3px;
+}
+
+.wiki-markdown .definition-link-implicit:hover {
+  color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.2);
+  text-decoration: underline;
+}

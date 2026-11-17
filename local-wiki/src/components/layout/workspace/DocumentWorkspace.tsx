@@ -4,7 +4,8 @@ import { useWorkspace } from "@/contexts/WorkspaceContext";
 
 import { ViewModeToolbar } from "@/components/layout/workspace/ViewModeToolbar";
 import { MarkdownPreview } from "@/components/layout/workspace/MarkdownPreview";
-import { useEffect } from "react";
+import { resolveWikiLink } from "@/lib/tauri";
+import { useCallback, useEffect } from "react";
 
 export function DocumentWorkspace() {
   const {
@@ -12,6 +13,7 @@ export function DocumentWorkspace() {
     editDocument,
     setViewMode,
     saveDocument,
+    openDocument,
   } = useWorkspace();
 
 
@@ -41,6 +43,28 @@ useEffect(() => {
 }, [activeDocument?.id, saveDocument]);
 
 
+
+const handleNavigate = useCallback(
+  async (target: string) => {
+    try {
+      // Ask Rust to find the linked Markdown file.
+      const relativePath = await resolveWikiLink(target);
+
+      const name = relativePath.split("/").pop()!;
+
+      // Open through the existing workspace.
+      await openDocument({
+        name,
+        relativePath,
+        isDirectory: false,
+      });
+    } catch (error) {
+      window.alert(String(error));
+    }
+  },
+  [openDocument]
+);
+
   // No document currently selected.
   if (!activeDocument) {
     return (
@@ -65,6 +89,8 @@ useEffect(() => {
 
   const isDirty =
   activeDocument.content !== activeDocument.savedContent;
+
+
 
   const { id, content, viewMode } = activeDocument;
 
@@ -120,8 +146,9 @@ useEffect(() => {
               key={id}
               content={content}
               onChange={(value: string) =>
-                editDocument(id, value)
+                editDocument(activeDocument.id, value)
               }
+              onNavigate={handleNavigate}
             />
           </div>
         )}
@@ -134,7 +161,8 @@ useEffect(() => {
         {/* Formatted Markdown preview */}
         {viewMode !== "source" && (
           <div className="min-w-0 flex-1 overflow-hidden">
-            <MarkdownPreview content={content} />
+            <MarkdownPreview content={content}
+            onNavigate={handleNavigate} />
           </div>
         )}
 

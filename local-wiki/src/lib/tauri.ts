@@ -40,3 +40,49 @@ export async function createDocument(
     relativePath,
   });
 }
+
+
+export async function renameEntry(
+  relativePath: string,
+  newName: string
+): Promise<void> {
+  await invoke<void>("rename_entry", {
+    relativePath,
+    newName,
+  });
+}
+
+export async function deleteEntry(
+  relativePath: string
+): Promise<void> {
+  await invoke<void>("delete_entry", {
+    relativePath,
+  });
+}
+
+
+export async function resolveWikiLink(
+  target: string
+): Promise<string> {
+  return invoke<string>("resolve_wiki_link", {
+    target,
+  });
+}
+
+
+export interface LibraryFeatures {
+  definitions: boolean;
+  tags: boolean;
+}
+
+export async function checkLibraryDirectories(): Promise<LibraryFeatures> {
+  return invoke<LibraryFeatures>("check_library_directories");
+}
+
+export async function initializeLibraryDirectories(
+  directories: string[]
+): Promise<void> {
+  return invoke<void>("initialize_library_directories", {
+    directories,
+  });
+}

@@ -7,7 +7,18 @@ mod services;
 mod state;              //Manage Directory state
 mod menu;               //Manage sub-menus
 
-use commands::libraries::{list_directory, open_library, read_document, write_document, create_document};
+use commands::libraries::{
+    list_directory, 
+    open_library,
+    read_document,
+    write_document,
+    create_document,
+    rename_entry, 
+    delete_entry,
+    resolve_wiki_link,
+    check_library_directories,
+    initialize_library_directories,
+};
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -32,6 +43,11 @@ pub fn run() {
             read_document,
             write_document,
             create_document,
+            rename_entry,
+            delete_entry,
+            resolve_wiki_link,
+            check_library_directories,
+            initialize_library_directories
         ])
 
         .run(tauri::generate_context!())
