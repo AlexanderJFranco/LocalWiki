@@ -29,12 +29,24 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
 
+    # The actual Tauri project is inside local-wiki/.
+    # All shell commands run from this directory.
+    defaults:
+      run:
+        working-directory: local-wiki
+
     steps:
-      # Download the tagged source code.
+      # ============================================
+      # 1. CHECKOUT REPOSITORY
+      # ============================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install Linux dependencies required by Tauri.
+      # ============================================
+      # 2. INSTALL LINUX DEPENDENCIES
+      # ============================================
+
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -47,41 +59,63 @@ jobs:
             libfuse2 \
             xdg-utils
 
-      # Set up Node.js.
+      # ============================================
+      # 3. SETUP NODE.JS
+      # ============================================
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: local-wiki/package-lock.json
 
-      # Install Rust and macOS build targets.
+      # ============================================
+      # 4. SETUP RUST
+      # ============================================
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # Cache Rust compilation artifacts.
+      # ============================================
+      # 5. CACHE RUST BUILD ARTIFACTS
+      # ============================================
+
       - name: Cache Rust
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: "local-wiki/src-tauri -> target"
 
-      # Install frontend dependencies.
+      # ============================================
+      # 6. INSTALL FRONTEND DEPENDENCIES
+      # ============================================
+
       - name: Install dependencies
         run: npm ci
 
-      # Build and upload installers to GitHub Releases.
+      # ============================================
+      # 7. BUILD AND UPLOAD INSTALLERS
+      # ============================================
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # Explicitly point Tauri to the nested project.
+          projectPath: local-wiki
+
           tagName: ${{ github.ref_name }}
           releaseName: "Local Wiki ${{ github.ref_name }}"
+
           releaseBody: |
             Cross-platform release of Local Wiki.
 
             Available for Windows, macOS, and Linux.
+
           releaseDraft: true
           prerelease: false
+
           args: ${{ matrix.args }}
