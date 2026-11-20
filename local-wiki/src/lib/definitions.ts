@@ -3,43 +3,38 @@ import {
   createDocument,
   writeDocument,
 } from "@/lib/tauri";
+import { notifyLibraryChanged } from "./libraryEvents";
 
 export async function createDefinition(
-  term: string
+  term: string,
+  description = ""
 ): Promise<string> {
   const name = term.trim();
+  const body = description.trim();
 
-  // Keep filenames simple for now.
   if (
     !name ||
-    name.length > 80 ||
     !/^[\p{L}\p{N}_ -]+$/u.test(name)
   ) {
     throw new Error("Invalid definition name.");
   }
 
-  // Definitions always belong in .def.
   const relativePath = `.def/${name}.md`;
 
-  // Create a new file without overwriting existing definitions.
+  // Must reject existing files, not overwrite them.
   await createDocument(relativePath);
 
-  // Generate the initial Markdown content.
-  const content = `---
-term: ${JSON.stringify(name)}
-aliases: []
----
+  // Every definition gets a heading.
+  // The body is optional.
+  const markdown = `# ${name}
 
-# ${name}
+${body}${body ? "\n" : ""}`;
 
-Write your definition here.
-
-## Related Concepts
-
-`;
-
-  // Populate the new definition.
-  await writeDocument(relativePath, content);
+  await writeDocument(relativePath, markdown);
+  notifyLibraryChanged({
+  type: "created",
+  relativePath,
+});
 
   return relativePath;
 }

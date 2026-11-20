@@ -12,8 +12,104 @@ use crate::repositories::filesystem;
 use std::fs::OpenOptions;
 
 
-// Use your existing AppState import.
 
+#[tauri::command]
+pub fn create_directory(
+    state: tauri::State<'_, AppState>,
+    relative_path: String,
+) -> Result<(), String> {
+    use std::fs;
+
+    let library_path = {
+        let active_library = state
+            .active_library
+            .lock()
+            .map_err(|_| "Failed to lock active library")?;
+
+        active_library
+            .clone()
+            .ok_or("No library is currently open")?
+    };
+
+    // Reject absolute paths and parent-directory traversal.
+    let relative = std::path::Path::new(&relative_path);
+
+    if relative.as_os_str().is_empty()
+        || relative.components().any(|component| {
+            !matches!(component, std::path::Component::Normal(_))
+        })
+    {
+        return Err("Invalid directory path".to_string());
+    }
+
+    let target_path = library_path.join(relative);
+
+    // Do not create a directory over an existing entry.
+    if target_path.exists() {
+        return Err("An entry with that name already exists".to_string());
+    }
+
+    fs::create_dir(&target_path)
+        .map_err(|error| format!("Failed to create directory: {error}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn resolve_definition(
+    state: State<'_, AppState>,
+    target: String,
+) -> Result<String, String> {
+    let name = target.trim();
+    let name = name.strip_suffix(".md").unwrap_or(name);
+
+    // Definition names are filenames, not arbitrary paths.
+    let path = Path::new(name);
+
+    if name.is_empty()
+        || path.components().count() != 1
+        || !matches!(
+            path.components().next(),
+            Some(Component::Normal(_))
+        )
+    {
+        return Err("Invalid definition name".into());
+    }
+
+    let guard = state.active_library
+        .lock()
+        .map_err(|e| e.to_string())?;
+
+    let root = guard.as_ref()
+        .ok_or("No library is open")?
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+
+    let definitions = root.join(".def")
+        .canonicalize()
+        .map_err(|_| {
+            "Definitions are not enabled for this library".to_string()
+        })?;
+
+    if !definitions.starts_with(&root) {
+        return Err("Invalid definitions directory".into());
+    }
+
+    let filename = format!("{name}.md");
+
+    let file = definitions.join(&filename)
+        .canonicalize()
+        .map_err(|_| format!("Definition not found: {name}"))?;
+
+    if !file.starts_with(&definitions) || !file.is_file() {
+        return Err("Invalid definition file".into());
+    }
+
+    Ok(format!(".def/{filename}"))
+}
+
+
+//Resolve the target text to corresponding document in directory
 #[tauri::command]
 pub fn resolve_wiki_link(
     state: State<'_, AppState>,

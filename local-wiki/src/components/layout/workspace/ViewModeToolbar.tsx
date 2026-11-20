@@ -1,5 +1,8 @@
 
 import type { ViewMode } from "@/types/document";
+import { VscSplitHorizontal } from "react-icons/vsc";
+import { AiOutlineFileMarkdown } from "react-icons/ai";
+import { TbSourceCode } from "react-icons/tb";
 
 interface ViewModeToolbarProps {
   mode: ViewMode;
@@ -13,44 +16,59 @@ export function ViewModeToolbar({
   return (
       
     
-    <div className="flex justify-end border-b border-gray-700 bg-gray-900 p-2">
+    <div className="flex justify-end   p-2">
       
       <div className="flex gap-1 rounded-md bg-gray-800 p-1">
     
         <button
           type="button"
           onClick={() => onModeChange("source")}
-          className={`rounded px-3 py-1 text-sm ${
-            mode === "source"
-              ? "bg-blue-600 text-white"
-              : "text-gray-400 hover:text-white"
-          }`}
+          className="rounded px-3 py-1 text-sm'"
         >
-          Source
-        </button>
+          <TbSourceCode
+          className={`
+                        transition-colors duration-150
+                        ${
+                          mode === "source"
+                            ? "text-blue-400"
+                            : "text-gray-400 hover:text-white"
+                        }
+                      `}
+                    />
+                  </button>
 
         <button
           type="button"
           onClick={() => onModeChange("split")}
-          className={`rounded px-3 py-1 text-sm ${
-            mode === "split"
-              ? "bg-blue-600 text-white"
-              : "text-gray-400 hover:text-white"
-          }`}
+          className="rounded px-3 py-1 text-sm "
         >
-          Split
+          <VscSplitHorizontal
+          className={`
+                        transition-colors duration-150
+                        ${
+                          mode === "split"
+                            ? "text-blue-400"
+                            : "text-gray-400 hover:text-white"
+                        }
+                      `}
+          />
         </button>
 
         <button
           type="button"
           onClick={() => onModeChange("preview")}
-          className={`rounded px-3 py-1 text-sm ${
-            mode === "preview"
-              ? "bg-blue-600 text-white"
-              : "text-gray-400 hover:text-white"
-          }`}
+          className="rounded px-3 py-1 text-sm "
         >
-          Preview
+          <AiOutlineFileMarkdown
+          className={`
+                        transition-colors duration-150
+                        ${
+                          mode === "preview"
+                            ? "text-blue-400"
+                            : "text-gray-400 hover:text-white"
+                        }
+                      `}
+          />
         </button>
 
       </div>

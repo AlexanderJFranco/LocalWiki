@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ExplorerEntry } from "./types/explorer";
 
 
@@ -6,19 +6,56 @@ import type { ExplorerEntry } from "./types/explorer";
 
 import "./App.css";
 import { AppShell } from "./components/layout/AppShell";
-import { RawTextViewer } from "./components/editors/RawTextViewer";
-import { OldTextEditor } from "./components/editors/OLDTEXTVIEWER";
-import { TextEditor } from "./components/editors/TextEditor";
 import { Workspace } from "./components/layout/workspace/Workspace";
 import { useWorkspace } from "./contexts/WorkspaceContext";
-
-import { WorkspaceProvider } from "./contexts/WorkspaceContext";
-
+import { listen } from "@tauri-apps/api/event";
 
 function LocalWikiLayout() {
   const { openDocument } = useWorkspace();
 
+
+const [tagsOpen, setTagsOpen] = useState(false);
+
+useEffect(() => {
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+
+  // Native Tools menu event.
+  void listen("menu:manage-tags", () => {
+    setTagsOpen(true);
+  }).then((cleanup) => {
+    if (disposed) cleanup();
+    else unlisten = cleanup;
+  }).catch(console.error);
+
+  // Keyboard shortcut.
+  function handleKeyDown(event: KeyboardEvent) {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.shiftKey &&
+      event.key.toLowerCase() === "t"
+    ) {
+      event.preventDefault();
+      setTagsOpen(true);
+    }
+  }
+
+  window.addEventListener("keydown", handleKeyDown);
+
+  return () => {
+    disposed = true;
+    unlisten?.();
+
+    window.removeEventListener(
+      "keydown",
+      handleKeyDown
+    );
+  };
+}, []);
+
+
   return (
+    
     <AppShell onFileSelect={openDocument}>
       <Workspace />
     </AppShell>

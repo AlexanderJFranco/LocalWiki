@@ -64,10 +64,14 @@ export function AppShell({ children, onFileSelect } : AppShellProps){
        <div ref={shellRef} className="flex h-screen overflow-hidden">
       {/* Sidebar width is controlled by React state. */}
       <aside
-        className="flex shrink-0 flex-col overflow-y-auto"
+        className="flex min-h-0 w-64 shrink-0 flex-col
+                    mt-3 mb-9 ml-3
+                    overflow-hidden rounded-3xl
+                    bg-[#21252B] shadow-lg
+                  "
         style={{ width: sidebarWidth }}
       >
-        <Sidebar onFileSelect={onFileSelect} />
+        <Sidebar onFileSelect={onFileSelect}  />
       </aside>
 
       {/* Draggable right-hand boundary. */}
@@ -75,12 +79,12 @@ export function AppShell({ children, onFileSelect } : AppShellProps){
         role="separator"
         aria-orientation="vertical"
         onPointerDown={handlePointerDown}
-        className="w-1 shrink-0 cursor-col-resize bg-gray-600 hover:bg-blue-500"
+        className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-transparent"
         style={{ touchAction: "none" }}
       />
 
       {/* Main editor fills whatever space remains. */}
-      <main className="min-w-0 flex-1 overflow-auto p-6">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-6">
         {children}
       </main>
     </div>

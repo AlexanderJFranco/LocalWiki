@@ -1,4 +1,6 @@
 
+import { syntaxTree } from "@codemirror/language";
+
 import {
   Decoration,
   EditorView,
@@ -7,234 +9,223 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 
-interface ImplicitMatch {
-  from: number;
-  to: number;
-  target: string;
-}
+import { RangeSetBuilder } from "@codemirror/state";
+import type { SyntaxNode } from "@lezer/common";
+import { findImplicitLinks } from "@/lib/implicitLinkMatcher";
+import type {
+  LibraryLink,
+  LibraryEntryKind,
+} from "@/types/libraryIndex";
 
-const explicitLinkRegex = /\[\[([^\]\n]+)\]\]/g;
+// Callback for navigating to indexed files.
+type NavigateIndexedLink = (
+  relativePath: string,
+  kind: LibraryEntryKind
+) => void;
 
-function escapeRegex(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+// Determine whether text belongs to Markdown syntax
+// that should not receive implicit links.
 
-function isWordCharacter(char: string): boolean {
-  return /[\p{L}\p{N}_]/u.test(char);
-}
+function isExcludedSyntax(
+  view: EditorView,
+  from: number,
+  to: number
+): boolean {
+  const tree = syntaxTree(view.state);
 
-function getImplicitMatches(view: EditorView): ImplicitMatch[] {
-  const doc = view.state.doc;
+  for (const position of [from, to - 1]) {
+    // A syntax node can have a null parent.
+    let node: SyntaxNode | null = tree.resolveInner(
+      position,
+      1
+    );
 
-  // A term maps to its wiki-link destination.
-  // null means the same term points to conflicting destinations.
-  const terms = new Map<string, string | null>();
-
-  const lines: {
-    from: number;
-    text: string;
-    excluded: { from: number; to: number }[];
-  }[] = [];
-
-  let fence: string | null = null;
-
-  // First pass: collect explicit links.
-  for (let n = 1; n <= doc.lines; n++) {
-    const line = doc.line(n);
-    const fenceMatch = line.text.match(/^\s*(`{3,}|~{3,})/);
-
-    if (fenceMatch) {
-      if (fence === null) {
-        fence = fenceMatch[1][0];
-      } else if (fence === fenceMatch[1][0]) {
-        fence = null;
-      }
-      continue;
-    }
-
-    if (fence !== null) continue;
-
-    const excluded: { from: number; to: number }[] = [];
-
-    // Ignore basic inline-code spans.
-    for (const match of line.text.matchAll(/`+[^`]*`+/g)) {
-      excluded.push({
-        from: match.index,
-        to: match.index + match[0].length,
-      });
-    }
-
-    for (const match of line.text.matchAll(explicitLinkRegex)) {
-      const start = match.index;
-      const end = start + match[0].length;
-
-      if (excluded.some(r => start < r.to && end > r.from)) {
-        continue;
-      }
-
-      excluded.push({ from: start, to: end });
-
-      const [rawTarget, rawAlias] = match[1].split("|");
-      const target = rawTarget.trim();
-
-      // Use the alias if supplied; otherwise use the page name.
-      const pageName = target
-        .split("/")
-        .pop()!
-        .replace(/\.md$/i, "");
-
-      const term = (rawAlias?.trim() || pageName).toLowerCase();
-
-      if (!target || !term) continue;
-
-      if (terms.has(term) && terms.get(term) !== target) {
-        terms.set(term, null);
-      } else if (!terms.has(term)) {
-        terms.set(term, target);
-      }
-    }
-
-    lines.push({
-      from: line.from,
-      text: line.text,
-      excluded,
-    });
-  }
-
-  // Ignore ambiguous terms.
-  const validTerms = [...terms.entries()]
-    .filter((entry): entry is [string, string] => entry[1] !== null)
-    .sort((a, b) => b[0].length - a[0].length);
-
-  if (validTerms.length === 0) return [];
-
-  const termMap = new Map(validTerms);
-  const pattern = new RegExp(
-    validTerms.map(([term]) => escapeRegex(term)).join("|"),
-    "gi"
-  );
-
-  const matches: ImplicitMatch[] = [];
-
-  // Second pass: find ordinary occurrences of those terms.
-  for (const line of lines) {
-    for (const match of line.text.matchAll(pattern)) {
-      const start = match.index;
-      const end = start + match[0].length;
-
-      // Don't decorate existing links or inline code.
-      if (line.excluded.some(r => start < r.to && end > r.from)) {
-        continue;
-      }
-
-      // Only match whole words.
-      const before = line.text[start - 1] ?? "";
-      const after = line.text[end] ?? "";
-
+    while (node !== null) {
       if (
-        (before && isWordCharacter(before)) ||
-        (after && isWordCharacter(after))
+        /Code|Link|URL|Image|HTML|Comment|Escape/i.test(
+          node.name
+        )
       ) {
-        continue;
+        return true;
       }
 
-      const target = termMap.get(match[0].toLowerCase());
-
-      if (!target) continue;
-
-      matches.push({
-        from: line.from + start,
-        to: line.from + end,
-        target,
-      });
+      // The root node has no parent.
+      node = node.parent;
     }
   }
 
-  // Avoid overlapping decorations.
-  matches.sort((a, b) => a.from - b.from || b.to - a.to);
+  return false;
+}
 
-  return matches.filter((match, index, all) =>
-    index === 0 || match.from >= all[index - 1].to
+
+// Find the indexed reference at a document position.
+function findLinkAt(
+  view: EditorView,
+  position: number,
+  entries: LibraryLink[]
+) {
+  const line = view.state.doc.lineAt(position);
+
+  return findImplicitLinks(line.text, entries).find(
+    (match) => {
+      const from = line.from + match.start;
+      const to = line.from + match.end;
+
+      return (
+        position >= from &&
+        position < to &&
+        !isExcludedSyntax(view, from, to)
+      );
+    }
   );
 }
 
 export function implicitWikiLinks(
-  onNavigate: (target: string) => void
+  entries: LibraryLink[],
+  onNavigate: NavigateIndexedLink
 ) {
+  // Build decorations from indexed terms.
   const plugin = ViewPlugin.fromClass(
     class {
-      matches: ImplicitMatch[];
       decorations: DecorationSet;
 
       constructor(view: EditorView) {
-        this.matches = getImplicitMatches(view);
-        this.decorations = this.createDecorations();
-      }
-
-      createDecorations(): DecorationSet {
-        return Decoration.set(
-          this.matches.map(match =>
-            Decoration.mark({
-              class: "cm-implicit-wiki-link",
-            }).range(match.from, match.to)
-          ),
-          true
-        );
+        this.decorations = this.buildDecorations(view);
       }
 
       update(update: ViewUpdate) {
-        if (update.docChanged) {
-          this.matches = getImplicitMatches(update.view);
-          this.decorations = this.createDecorations();
+        if (
+          update.docChanged ||
+          update.viewportChanged
+        ) {
+          this.decorations = this.buildDecorations(
+            update.view
+          );
         }
+      }
+
+      buildDecorations(
+        view: EditorView
+      ): DecorationSet {
+        const builder =
+          new RangeSetBuilder<Decoration>();
+
+        // Only inspect visible document ranges.
+        for (const range of view.visibleRanges) {
+          let position = range.from;
+
+          while (position <= range.to) {
+            const line = view.state.doc.lineAt(position);
+
+            const matches = findImplicitLinks(
+              line.text,
+              entries
+            );
+
+            for (const match of matches) {
+              const from = line.from + match.start;
+              const to = line.from + match.end;
+
+              // Include only matches beginning in this
+              // visible range to avoid duplicate marks.
+              if (
+                from < range.from ||
+                from > range.to
+              ) {
+                continue;
+              }
+
+              if (isExcludedSyntax(view, from, to)) {
+                continue;
+              }
+
+              const className =
+                match.kind === "definition"
+                  ? "cm-implicit-definition"
+                  : "cm-implicit-document";
+
+              builder.add(
+                from,
+                to,
+                Decoration.mark({
+                  class: className,
+                })
+              );
+            }
+
+            if (line.to >= range.to) break;
+
+            position = line.to + 1;
+          }
+        }
+
+        return builder.finish();
       }
     },
     {
-      decorations: value => value.decorations,
-
-      eventHandlers: {
-        click(event, view) {
-          if (!event.ctrlKey && !event.metaKey) {
-            return false;
-          }
-
-          const position = view.posAtCoords({
-            x: event.clientX,
-            y: event.clientY,
-          });
-
-          if (position === null) return false;
-
-          const instance = view.plugin(plugin);
-
-          const match = instance?.matches.find(
-            m => position >= m.from && position < m.to
-          );
-
-          if (!match) return false;
-
-          event.preventDefault();
-          onNavigate(match.target);
-          return true;
-        },
-      },
+      decorations: (value) => value.decorations,
     }
   );
 
-  const theme = EditorView.baseTheme({
-    "& .cm-implicit-wiki-link": {
-      borderRadius: "3px",
-      cursor: "pointer",
-      transition: "background-color 120ms ease",
-    },
+  // Ctrl+Click or Cmd+Click to navigate.
+  const navigation = EditorView.domEventHandlers({
+    click(event, view) {
+      if (!event.ctrlKey && !event.metaKey) {
+        return false;
+      }
 
-    "& .cm-implicit-wiki-link:hover": {
-      backgroundColor: "rgba(59, 130, 246, 0.25)",
-      textDecoration: "underline",
-      textDecorationColor: "#60a5fa",
-      textUnderlineOffset: "3px",
+      const position = view.posAtCoords({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      if (position === null) return false;
+
+      const match = findLinkAt(
+        view,
+        position,
+        entries
+      );
+
+      if (!match) return false;
+
+      event.preventDefault();
+
+      onNavigate(
+        match.relativePath,
+        match.kind
+      );
+
+      return true;
     },
   });
 
-  return [plugin, theme];
+  // Implicit links remain visually neutral until hover.
+  const theme = EditorView.baseTheme({
+    "& .cm-implicit-definition": {
+      color: "inherit",
+      cursor: "pointer",
+    },
+
+    "& .cm-implicit-definition:hover": {
+      color: "#22c55e",
+      textDecoration: "underline",
+      textUnderlineOffset: "3px",
+      backgroundColor: "rgba(34,197,94,0.12)",
+    },
+
+    "& .cm-implicit-document": {
+      color: "inherit",
+      cursor: "pointer",
+    },
+
+    "& .cm-implicit-document:hover": {
+      color: "#60a5fa",
+      textDecoration: "underline",
+      textUnderlineOffset: "3px",
+      backgroundColor: "rgba(96,165,250,0.12)",
+    },
+  });
+
+  return [plugin, navigation, theme];
 }

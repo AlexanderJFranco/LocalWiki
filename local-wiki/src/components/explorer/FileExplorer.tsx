@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 // Tauri plugin that opens the operating system's folder picker.
 import { open } from "@tauri-apps/plugin-dialog";
@@ -8,7 +8,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 
 // Our custom TypeScript functions that communicate with Rust.
-import { openLibrary, listDirectory, checkLibraryDirectories, initializeLibraryDirectories } from "../../lib/tauri";
+import { openLibrary, listDirectory, checkLibraryDirectories, initializeLibraryDirectories, getLibraryIndex, createDirectory } from "../../lib/tauri";
 
 // The structure of a file or folder returned by Rust.
 import type { ExplorerEntry } from "../../types/explorer";
@@ -18,8 +18,18 @@ import { OpenLibraryButton } from "../features/OpenLibraryButton";
 import { ExplorerNode } from "./ExplorerNode";
 import { createDocument, deleteEntry, renameEntry } from "@/lib/tauri";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
-import { createDefinition } from "@/lib/definitions";
+import { useLibraryIndex } from "@/contexts/LibraryIndexContext";
+import { LIBRARY_CHANGED_EVENT, notifyLibraryChanged } from "@/lib/libraryEvents";import { VscNewFile } from "react-icons/vsc";
+import { FaSearch } from "react-icons/fa";
 
+
+import {
+  FaFolder,
+  FaFileMedical,
+  FaFolderPlus,
+  FaSyncAlt,
+  FaCompressAlt,
+} from "react-icons/fa";
 // FUTURE:
 // Import ExplorerNode when you create the component.
 // import { ExplorerNode } from "./ExplorerNode";
@@ -29,6 +39,9 @@ interface FileExplorerProps{
 }
 
 export function FileExplorer({onFileSelect}: FileExplorerProps) {
+
+   
+
 
   // ========================================================
   // 1. REACT STATE
@@ -65,6 +78,18 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
 
   const {documents} = useWorkspace();
   const [refreshKey, setRefreshKey] = useState(0);
+  const { refreshIndex, clearIndex } = useLibraryIndex();
+  const [collapseVersion, setCollapseVersion] = useState(0);
+
+  function handleCollapseAll() {
+    setCollapseVersion((previous) => previous + 1);
+  }
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visiblePaths, setVisiblePaths] = useState<Set<string>>(
+    new Set()
+  );
+    
 
   //Check if directory has supported feature folders
   const [libraryFeatures, setLibraryFeatures] = useState({
@@ -79,44 +104,147 @@ export function FileExplorer({onFileSelect}: FileExplorerProps) {
   const [error, setError] = useState("");
 
   // Refresh the files and folders at the library root.
-  async function refreshEntries() {
-    const rootEntries = await listDirectory("");
-    setEntries(rootEntries);
+  const refreshEntries = useCallback(async () => {
+  const rootEntries = await listDirectory("");
+  setEntries(rootEntries);
+}, []);
+
+
+useEffect(() => {
+  function handleShortcut(event: KeyboardEvent) {
+    const modifier = event.ctrlKey || event.metaKey;
+
+    if (!modifier || event.altKey || event.repeat) return;
+
+    const key = event.key.toLowerCase();
+
+    // Open Library
+    if (key === "o" && !event.shiftKey) {
+      event.preventDefault();
+      void handleOpenLibrary();
+    }
+
+    // New File
+    if (key === "n" && !event.shiftKey) {
+      event.preventDefault();
+      void handleCreateDocument();
+    }
+
+    // New Directory
+    if (key === "n" && event.shiftKey) {
+      event.preventDefault();
+      void handleCreateDirectory();
+    }
   }
 
+  window.addEventListener("keydown", handleShortcut, true);
 
-async function handleCreateDefinition() {
-  if (!libraryPath) {
-    window.alert("Open a library first.");
+  return () => {
+    window.removeEventListener("keydown", handleShortcut, true);
+  };
+}, [
+  handleOpenLibrary,
+  handleCreateDocument,
+  handleCreateDirectory,
+]);
+
+useEffect(() => {
+  let cancelled = false;
+
+  if (!searchQuery.trim()) {
+    setVisiblePaths(new Set());
     return;
   }
 
-  const term = window.prompt(
-    "Definition name:",
-    ""
-  );
+  const timeout = window.setTimeout(async () => {
+    try {
+      const matches = await findMatchingPaths(
+        "",
+        searchQuery.trim()
+      );
 
-  if (term === null) return;
+      if (!cancelled) {
+        setVisiblePaths(matches);
+      }
+    } catch (error) {
+      console.error("File search failed:", error);
+    }
+  }, 200);
 
-  try {
-    // Create the definition inside .def/.
-    const relativePath = await createDefinition(term);
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timeout);
+  };
+}, [searchQuery, refreshKey]);
 
-    // Refresh root-level explorer entries.
-    await refreshEntries();
 
-    // Open the new definition in CodeMirror.
-    onFileSelect({
-      name: relativePath.split("/").pop()!,
-      relativePath,
-      isDirectory: false,
+useEffect(() => {
+  function handleLibraryChanged() {
+    // Refresh root-level file and folder entries.
+    void refreshEntries().catch((error) => {
+      console.error(
+        "Failed to refresh File Explorer:",
+        error
+      );
     });
 
-  } catch (error) {
-    window.alert(`Failed to create definition: ${error}`);
+    // Notify existing ExplorerNode components
+    // that their directory contents may have changed.
+    setRefreshKey((previous) => previous + 1);
   }
-}
 
+  window.addEventListener(
+    LIBRARY_CHANGED_EVENT,
+    handleLibraryChanged
+  );
+
+  return () => {
+    window.removeEventListener(
+      LIBRARY_CHANGED_EVENT,
+      handleLibraryChanged
+    );
+  };
+}, [refreshEntries]);
+
+async function findMatchingPaths(
+  directoryPath: string,
+  query: string
+): Promise<Set<string>> {
+  const visiblePaths = new Set<string>();
+  const normalizedQuery = query.trim().toLowerCase();
+
+  async function searchDirectory(path: string): Promise<boolean> {
+    const children = await listDirectory(path);
+    let hasMatches = false;
+
+    for (const child of children) {
+      const nameMatches = child.name
+        .toLowerCase()
+        .includes(normalizedQuery);
+
+      let descendantMatches = false;
+
+      // Search every directory, even if it is collapsed.
+      if (child.isDirectory) {
+        descendantMatches = await searchDirectory(
+          child.relativePath
+        );
+      }
+
+      // Show matching entries AND directories containing matches.
+      if (nameMatches || descendantMatches) {
+        visiblePaths.add(child.relativePath);
+        hasMatches = true;
+      }
+    }
+
+    return hasMatches;
+  }
+
+  await searchDirectory(directoryPath);
+
+  return visiblePaths;
+}
 
 
   // ========================================================
@@ -131,64 +259,42 @@ async function handleCreateDefinition() {
   //
   // Both actions should execute exactly the same logic.
 
-  
+
 async function handleOpenLibrary() {
+  const selectedPath = await open({
+    directory: true,
+    multiple: false,
+  });
+
+  if (!selectedPath) return;
+
   try {
     setError("");
 
-    // Open the operating system's folder picker.
-    const selectedPath = await open({
-      directory: true,
-      multiple: false,
-      title: "Open Local Wiki Library",
-    });
-
-    if (selectedPath === null) return;
-
-    // Register the library with the Rust backend.
+    // Open the selected library in Rust.
     await openLibrary(selectedPath);
 
-    // Check optional features.
-    let features = await checkLibraryDirectories();
+    // Clear references from the previous library.
+    clearIndex();
 
-    // Determine which directories need creation.
-    const missing: string[] = [];
-
-    if (!features.definitions) missing.push(".def");
-    if (!features.tags) missing.push(".tags");
-
-    // Offer initialization.
-    if (missing.length > 0) {
-      const shouldCreate = window.confirm(
-        `Missing optional directories:\n\n${missing.join("\n")}` +
-        "\n\nCreate them with example templates?"
-      );
-
-      if (shouldCreate) {
-        await initializeLibraryDirectories(missing);
-
-        // Refresh feature availability after creation.
-        features = await checkLibraryDirectories();
-      }
-    }
-
-// Store availability in React state.
-setLibraryFeatures(features);
-    
-
-    // Update the active library in the interface.
+    // Update the displayed library path.
     setLibraryPath(selectedPath);
 
-    // Refresh the explorer, including newly created folders.
+    // Load the root directory.
     await refreshEntries();
 
-  } catch (err) {
-    setError(String(err));
-    console.error("Failed to open library:", err);
+    // Rebuild the implicit link index.
+    await refreshIndex();
+  } catch (error) {
+    console.error("Library opening failed:", error);
+    setError(String(error));
   }
 }
 
-
+const rootDirectoryName = libraryPath
+  ?.replace(/[\\/]+$/, "")
+  .split(/[\\/]/)
+  .pop();
 
   // ========================================================
   // 3. NATIVE MENU EVENT LISTENER
@@ -281,6 +387,52 @@ function isEntryOpen(entry: ExplorerEntry): boolean {
   );
 }
 
+
+async function handleCreateDirectory(parentPath: string = "") {
+  // Only permit creation when a library is open.
+  if (!libraryPath) {
+    window.alert("Please open a library first.");
+    return;
+  }
+
+  const input = window.prompt(
+    "New directory name:",
+    "New Folder"
+  );
+
+  if (input === null) return;
+
+  const directoryName = input.trim();
+
+  if (
+    !directoryName ||
+    directoryName === "." ||
+    directoryName === ".." ||
+    directoryName.includes("/") ||
+    directoryName.includes("\\")
+  ) {
+    window.alert("Please enter a valid directory name.");
+    return;
+  }
+
+  const relativePath = parentPath
+    ? `${parentPath}/${directoryName}`
+    : directoryName;
+
+  try {
+    await createDirectory(relativePath);
+
+    // Refresh the root and expanded nested directories.
+    await refreshEntries();
+
+    // Update indexed wiki pages if needed.
+    await refreshIndex();
+  } catch (error) {
+    window.alert(`Failed to create directory: ${error}`);
+  }
+}
+
+
 async function handleRenameEntry(entry: ExplorerEntry) {
   if (isEntryOpen(entry)) {
     window.alert("Close affected document tabs before renaming.");
@@ -305,11 +457,16 @@ async function handleRenameEntry(entry: ExplorerEntry) {
 
   try {
     await renameEntry(entry.relativePath, newName);
-    await refreshEntries();
+    await refreshDirectory();
     setRefreshKey((key) => key + 1);
   } catch (error) {
     window.alert(`Rename failed: ${error}`);
   }
+}
+
+async function refreshDirectory(){
+    await refreshEntries();
+    await refreshIndex();
 }
 
 async function handleDeleteEntry(entry: ExplorerEntry) {
@@ -318,7 +475,7 @@ async function handleDeleteEntry(entry: ExplorerEntry) {
     return;
   }
 
-  const confirmed = window.confirm(
+  const confirmed = await window.confirm(
     entry.isDirectory
       ? `Permanently delete "${entry.name}" and everything inside it?`
       : `Permanently delete "${entry.name}"?`
@@ -328,15 +485,17 @@ async function handleDeleteEntry(entry: ExplorerEntry) {
 
   try {
     await deleteEntry(entry.relativePath);
-    await refreshEntries();
+    refreshDirectory();
     setRefreshKey((key) => key + 1);
+    
   } catch (error) {
     window.alert(`Delete failed: ${error}`);
   }
 }
 
 
-async function handleCreateDocument() {
+
+async function handleCreateDocument(parentPath: string = "") {
   // Only permit creation when a library is open.
   if (!libraryPath) {
     window.alert("Please open a library first.");
@@ -363,20 +522,27 @@ async function handleCreateDocument() {
     return;
   }
 
-  const relativePath = filename.endsWith(".md")
+  // Ensure the file has the Markdown extension.
+  const fileName = filename.toLowerCase().endsWith(".md")
     ? filename
     : `${filename}.md`;
 
+  // Construct the path relative to the library root.
+  const relativePath = parentPath
+    ? `${parentPath}/${fileName}`
+    : fileName;
+
   try {
-    // 1. Create the file in the active library.
+    // Create the file in the specified directory.
     await createDocument(relativePath);
 
-    // 2. Reload the root directory into React state.
+    // Refresh the File Explorer and library index.
     await refreshEntries();
+    await refreshIndex();
 
-    // 3. Open the new file in CodeMirror.
+    // Open the newly created file.
     onFileSelect({
-      name: relativePath,
+      name: fileName,
       relativePath,
       isDirectory: false,
     });
@@ -388,20 +554,15 @@ async function handleCreateDocument() {
 
 
 
+
   // ========================================================
   // 6 RENDER FILE EXPLORER
   // ========================================================
 
   return (
-    <div className="flex h-full flex-col gap-2 p-3">
-      <button
-  type="button"
-  onClick={handleCreateDocument}
-  className="rounded px-2 py-1 text-sm hover:bg-gray-700"
-  title="New Markdown File"
->
-  + New File
-</button>
+    
+    <div className="flex h-full flex-col gap-2 px-3 py-5">
+   
       {/* Display the panel heading. */}
       {libraryPath.length == 0 && 
       <h2 className="font-semibold whitespace-nowrap">
@@ -414,14 +575,7 @@ async function handleCreateDocument() {
 
 
 
-      {/* Display the currently opened library path.
-          truncate prevents long paths from overflowing. */}
-      <p
-        className="truncate text-xs text-gray-500"
-        title={libraryPath}
-      >
-        {libraryPath || "No library selected"}
-      </p>
+      
 
 
       {/* Only show an error message when error isn't empty. */}
@@ -431,27 +585,176 @@ async function handleCreateDocument() {
         </p>
       )}
 
+      {libraryPath && (
+    
 
+    <span
+      className="truncate text-sm font-semibold text-black"
+      title={libraryPath}
+    >
+      
+
+{libraryPath && (
+  <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 border-b border-gray-700 px-2 py-2">
+
+    {/* Root directory */}
+    <div
+      className="flex min-w-0 items-center gap-1 overflow-hidden"
+      title={libraryPath}
+    >
+      <FaFolder className="shrink-0 text-yellow-500" />
+
+      <span className="min-w-0 truncate text-sm font-semibold text-Black-200">
+        {rootDirectoryName}
+      </span>
+    </div>
+
+    {/* Explorer actions */}
+    <div className="flex shrink-0 items-center gap-0.5">
+
+            {/* New File */}
+      <button
+        type="button"
+        onClick={() => void handleCreateDocument()}
+        title="New File"
+        aria-label="New File"
+        className="rounded bg-transparent p-1.5 text-gray-400 hover:bg-gray-700 hover:text-white"
+      >
+        <FaFileMedical size={14} />
+      </button>
+
+      {/* New Directory */}
+      <button
+        type="button"
+        onClick={() => void handleCreateDirectory()}
+        title="New Directory"
+        aria-label="New Directory"
+        className="rounded bg-transparent p-1.5 text-gray-400 hover:bg-gray-700 hover:text-white"
+      >
+        <FaFolderPlus size={14} />
+      </button>
+
+      {/* Refresh */}
+      <button
+        type="button"
+        onClick={() => {
+          void refreshEntries();
+          setRefreshKey((value) => value + 1);
+        }}
+        title="Refresh Explorer"
+        aria-label="Refresh Explorer"
+        className="rounded bg-transparent p-1.5 text-gray-400 hover:bg-gray-700 hover:text-white"
+      >
+        <FaSyncAlt size={14} />
+      </button>
+
+      {/* Collapse All */}
+      <button
+        type="button"
+        onClick={handleCollapseAll}
+        title="Collapse All"
+        aria-label="Collapse All"
+        className="rounded bg-transparent p-1.5 text-gray-400 hover:bg-gray-700 hover:text-white"
+      >
+        <FaCompressAlt size={14} />
+      </button>
+
+    </div>
+  </div>
+)}
+
+  
+{/* File Explorer Search */}
+<div className="relative w-full">
+  <FaSearch
+    className="
+      pointer-events-none
+      absolute left-1 top-1/2
+      -translate-y-1/2
+      text-sm text-gray-500
+    "
+  />
+
+  <input
+    id="explorer-search"
+    type="text"
+    value={searchQuery}
+    onChange={(event) => setSearchQuery(event.target.value)}
+    placeholder="Search files..."
+    className="
+      peer h-10 w-full
+      !rounded-none !border-0
+      !border-b !border-gray-400
+      !bg-transparent
+      pl-7 pr-7
+      text-sm !text-black
+      placeholder:text-gray-500
+      !shadow-none outline-none
+      transition-colors
+      focus:!border-blue-500
+      focus:!outline-none
+    "
+  />
+
+  {searchQuery && (
+    <button
+      type="button"
+      onClick={() => setSearchQuery("")}
+      aria-label="Clear search"
+      className="
+        absolute right-1 top-1/2
+        -translate-y-1/2
+        !border-0 !bg-transparent
+        !p-1 !text-gray-500
+        hover:!text-blue-500
+      "
+    >
+      ×
+    </button>
+  )}
+</div>
+
+
+    </span>
+    
+ 
+)}
+
+{/* Display the currently opened library path.
+          truncate prevents long paths from overflowing. */}
+      <p
+        className="truncate text-xs text-gray-500"
+        title={libraryPath}
+      >
+        {libraryPath || ""}
+      </p>
 
       <div className="flex min-h-0 flex-1 flex-col ">
-        {entries.map((entry) => (
-          <div
-            key={`${libraryPath}:${entry.relativePath}`}
-            className="group flex items-center gap-2 py-1"
-          >
-            <div className="min-w-0 flex-1">
-              <ExplorerNode
-               key={`${entry.relativePath}:${refreshKey}`}
-                entry={entry}
-                onFileSelect={onFileSelect}
-                onRename={handleRenameEntry}
-                onDelete={handleDeleteEntry}
-              />
-            </div>
+        {entries.map((entry) => {
+  const isVisible =
+    !searchQuery.trim() ||
+    visiblePaths.has(entry.relativePath);
 
-            
-          </div>
-        ))}
+  return (
+    <div
+      key={entry.relativePath}
+      className={isVisible ? "" : "hidden"}
+    >
+      <ExplorerNode
+        entry={entry}
+        refreshVersion={refreshKey}
+        collapseVersion={collapseVersion}
+        searchQuery={searchQuery}
+        visiblePaths={visiblePaths}
+        onFileSelect={onFileSelect}
+        onRename={handleRenameEntry}
+        onDelete={handleDeleteEntry}
+        onCreateFile={handleCreateDocument}
+        onCreateDirectory={handleCreateDirectory}
+      />
+    </div>
+  );
+})}
 
 
         

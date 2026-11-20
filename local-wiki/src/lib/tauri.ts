@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ExplorerEntry } from "../types/explorer";
+import { notifyLibraryChanged } from "@/lib/libraryEvents";
 
 //Request that Rust register a workspace directory
 export async function openLibrary(path: string): Promise<void> {
@@ -39,6 +40,11 @@ export async function createDocument(
   await invoke<void>("create_document", {
     relativePath,
   });
+
+  notifyLibraryChanged({
+    type: "created",
+    relativePath,
+  });
 }
 
 
@@ -50,6 +56,12 @@ export async function renameEntry(
     relativePath,
     newName,
   });
+
+  // After a successful rename:
+    notifyLibraryChanged({
+    type: "renamed",
+    relativePath: relativePath,
+    });
 }
 
 export async function deleteEntry(
@@ -58,7 +70,14 @@ export async function deleteEntry(
   await invoke<void>("delete_entry", {
     relativePath,
   });
-}
+
+
+  // After a successful deletion:
+    notifyLibraryChanged({
+    type: "deleted",
+    relativePath,
+    });
+    }
 
 
 export async function resolveWikiLink(
@@ -69,6 +88,13 @@ export async function resolveWikiLink(
   });
 }
 
+export async function resolveDefinition(
+  target: string
+): Promise<string> {
+  return invoke<string>("resolve_definition", {
+    target,
+  });
+}
 
 export interface LibraryFeatures {
   definitions: boolean;
@@ -82,7 +108,22 @@ export async function checkLibraryDirectories(): Promise<LibraryFeatures> {
 export async function initializeLibraryDirectories(
   directories: string[]
 ): Promise<void> {
+    
   return invoke<void>("initialize_library_directories", {
     directories,
+  });
+}
+
+import type { LibraryLink } from "@/types/libraryIndex";
+
+export async function getLibraryIndex(): Promise<LibraryLink[]> {
+  return invoke<LibraryLink[]>("get_library_index");
+}
+
+export async function createDirectory(
+  relativePath: string
+): Promise<void> {
+  await invoke("create_directory", {
+    relativePath,
   });
 }

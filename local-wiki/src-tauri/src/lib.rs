@@ -6,6 +6,7 @@ mod repositories;
 mod services;           
 mod state;              //Manage Directory state
 mod menu;               //Manage sub-menus
+mod library_index;
 
 use commands::libraries::{
     list_directory, 
@@ -18,8 +19,11 @@ use commands::libraries::{
     resolve_wiki_link,
     check_library_directories,
     initialize_library_directories,
+    resolve_definition,
+    create_directory,
 };
 use state::AppState;
+use library_index::get_library_index;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -47,7 +51,10 @@ pub fn run() {
             delete_entry,
             resolve_wiki_link,
             check_library_directories,
-            initialize_library_directories
+            initialize_library_directories,
+            resolve_definition,
+            get_library_index,
+            create_directory,
         ])
 
         .run(tauri::generate_context!())
