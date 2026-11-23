@@ -379,18 +379,6 @@ pub fn list_directory(
     library_service::list_directory(root, &relative_path)
 }
 
-#[tauri::command]
-pub fn read_from_document(path: String, state: State<'_, AppState>) -> Result<(), String> {
-    let root = library_service::open_library(&path)?;
-
-    let mut active = state
-        .active_library
-        .lock()
-        .map_err(|_| "Workspace state lock failed")?;
-
-    *active = Some(root);
-    Ok(())
-}
 
 // Reads a document from the currently opened library.
 //
