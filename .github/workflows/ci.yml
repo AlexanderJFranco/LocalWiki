@@ -71,7 +71,7 @@ jobs:
       # Enforce code formatting.
       - name: Check formatting
         run: cargo fmt --all -- --check
-        working-directory: src-tauri
+        working-directory: ./local-wiki/src-tauri
 
       # Run Rust's static analysis.
       - name: Run Clippy

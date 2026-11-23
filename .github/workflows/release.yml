@@ -33,7 +33,7 @@ jobs:
     # All shell commands run from this directory.
     defaults:
       run:
-        working-directory: local-wiki
+        working-directory: ./local-wiki
 
     steps:
       # ============================================
