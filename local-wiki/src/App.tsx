@@ -23,6 +23,7 @@ useEffect(() => {
   // Native Tools menu event.
   void listen("menu:manage-tags", () => {
     setTagsOpen(true);
+    console.log(tagsOpen);
   }).then((cleanup) => {
     if (disposed) cleanup();
     else unlisten = cleanup;
