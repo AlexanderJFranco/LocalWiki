@@ -260,6 +260,7 @@ async function findMatchingPaths(
   // Both actions should execute exactly the same logic.
 
 
+
 async function handleOpenLibrary() {
   const selectedPath = await open({
     directory: true,
@@ -271,25 +272,55 @@ async function handleOpenLibrary() {
   try {
     setError("");
 
-    // Open the selected library in Rust.
+    // 1. Open the selected library in Rust.
     await openLibrary(selectedPath);
 
-    // Clear references from the previous library.
-    clearIndex();
+    // 2. Check which optional directories exist.
+    const features = await checkLibraryDirectories();
 
-    // Update the displayed library path.
+    // 3. Identify the missing directories.
+    const missingDirectories: string[] = [];
+
+    if (!features.definitions) {
+      missingDirectories.push(".def");
+    }
+
+    if (!features.tags) {
+      missingDirectories.push(".tags");
+    }
+
+    // 4. Offer to initialize the missing directories.
+    if (missingDirectories.length > 0) {
+      const confirmed = await window.confirm(
+        `This library is missing the following directories:\n\n` +
+        missingDirectories.join("\n") +
+        `\n\nWould you like to create them?`
+      );
+
+      if (confirmed) {
+        console.log(missingDirectories);
+        await initializeLibraryDirectories(missingDirectories);
+      }
+    }
+
+    // 5. Update the library state.
+    clearIndex();
     setLibraryPath(selectedPath);
 
-    // Load the root directory.
+    // 6. Refresh the File Explorer.
     await refreshEntries();
+    setRefreshKey((previous) => previous + 1);
 
-    // Rebuild the implicit link index.
+    // 7. Rebuild the library index.
     await refreshIndex();
+
   } catch (error) {
     console.error("Library opening failed:", error);
     setError(String(error));
   }
 }
+
+
 
 const rootDirectoryName = libraryPath
   ?.replace(/[\\/]+$/, "")
