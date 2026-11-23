@@ -43,6 +43,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+          cache-dependency-path: ./local-wiki/package-lock.json
 
       # Install Rust.
       - name: Setup Rust
@@ -54,11 +55,16 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: ./local-wiki/src-tauri -> target
 
       # Install frontend dependencies.
       - name: Install frontend
+        working-directory: ./local-wiki
         run: npm ci
+
+      - name: Build frontend
+        working-directory: ./local-wiki
+        run: npm run build
 
       # Ensure Rust compiles.
       - name: Check Rust
