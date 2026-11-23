@@ -378,8 +378,6 @@ pub fn list_directory(
 
     library_service::list_directory(root, &relative_path)
 }
-
-
 // Reads a document from the currently opened library.
 //
 // React will call this command using:
