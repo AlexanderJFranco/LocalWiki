@@ -62,11 +62,11 @@ jobs:
 
       # Ensure Rust compiles.
       - name: Check Rust
-        run: cargo check --locked --manifest-path src-tauri/Cargo.toml
+        run: cargo check --locked --manifest-path ./local-wiki/src-tauri/Cargo.toml
 
       # Run unit tests.
       - name: Test Rust
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+        run: cargo test --locked --manifest-path ./local-wiki/src-tauri/Cargo.toml
 
       # Enforce code formatting.
       - name: Check formatting
@@ -75,4 +75,4 @@ jobs:
 
       # Run Rust's static analysis.
       - name: Run Clippy
-        run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --locked --manifest-path ./local-wiki/src-tauri/Cargo.toml --all-targets -- -D warnings
