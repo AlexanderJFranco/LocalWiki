@@ -1,4 +1,3 @@
-
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -19,29 +18,19 @@ pub struct LibraryLink {
 
 // Exposed to the React frontend through Tauri.
 #[tauri::command]
-pub fn get_library_index(
-    state: State<'_, AppState>,
-) -> Result<Vec<LibraryLink>, String> {
+pub fn get_library_index(state: State<'_, AppState>) -> Result<Vec<LibraryLink>, String> {
     // Retrieve the currently opened library directory.
-    let guard = state
-        .active_library
-        .lock()
-        .map_err(|e| e.to_string())?;
+    let guard = state.active_library.lock().map_err(|e| e.to_string())?;
 
-    let root = guard
-        .as_ref()
-        .ok_or("No library is open")?;
+    let root = guard.as_ref().ok_or("No library is open")?;
 
     let mut links = Vec::new();
 
     // Recursively scan the library for Markdown files.
-    scan_directory(root, root, &mut links)
-        .map_err(|e| e.to_string())?;
+    scan_directory(root, root, &mut links).map_err(|e| e.to_string())?;
 
     // Ensure results are returned consistently.
-    links.sort_by(|a, b| {
-        a.relative_path.cmp(&b.relative_path)
-    });
+    links.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
 
     Ok(links)
 }
@@ -87,9 +76,7 @@ fn scan_directory(
         let is_markdown = path
             .extension()
             .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| {
-                extension.eq_ignore_ascii_case("md")
-            });
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
 
         if !is_markdown {
             continue;
@@ -102,18 +89,13 @@ fn scan_directory(
             .expect("Indexed file must belong to library");
 
         // Normalize Windows paths to forward slashes.
-        let relative_path = relative
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative_path = relative.to_string_lossy().replace('\\', "/");
 
         // Everything inside .def/ is a definition.
-        let is_definition =
-            relative_path.starts_with(".def/");
+        let is_definition = relative_path.starts_with(".def/");
 
         // Ignore the template README in .def/.
-        if is_definition
-            && name.eq_ignore_ascii_case("README.md")
-        {
+        if is_definition && name.eq_ignore_ascii_case("README.md") {
             continue;
         }
 

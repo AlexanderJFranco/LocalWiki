@@ -3,38 +3,28 @@ use std::path::Path;
 
 use crate::domain::explorer::ExplorerEntry;
 
-
 //Read a single file
 pub fn read_file(path: &Path) -> Result<String, String> {
-
     // Read the file and convert its contents into a String.
     // read_to_string expects valid UTF-8 text.
     //
     // ? extracts the text if successful or returns the error.
-    fs::read_to_string(path)
-        .map_err(|error| error.to_string())
+    fs::read_to_string(path).map_err(|error| error.to_string())
 }
 
 // Reads only the immediate children of a directory.
-pub fn read_directory(
-    directory: &Path,
-    root: &Path,
-) -> Result<Vec<ExplorerEntry>, String> {
-
+pub fn read_directory(directory: &Path, root: &Path) -> Result<Vec<ExplorerEntry>, String> {
     // Collect the results into a vector (like an array).
     let mut entries = Vec::new();
 
     // Open the directory, returning a readable error on failure.
-    let items = fs::read_dir(directory)
-        .map_err(|error| error.to_string())?;
+    let items = fs::read_dir(directory).map_err(|error| error.to_string())?;
 
     for item in items {
         let item = item.map_err(|error| error.to_string())?;
 
         // Get filesystem metadata for the entry.
-        let file_type = item
-            .file_type()
-            .map_err(|error| error.to_string())?;
+        let file_type = item.file_type().map_err(|error| error.to_string())?;
 
         // Skip symbolic links in our first implementation.
         if file_type.is_symlink() {
@@ -68,8 +58,6 @@ pub fn read_directory(
 
 //UNIT TESTS
 
-
-
 #[cfg(test)]
 mod tests {
     // Import functions and types from the parent module.
@@ -77,7 +65,6 @@ mod tests {
 
     #[test]
     fn read_file_returns_contents() {
-
         // Create a unique temporary directory.
         // tempfile automatically deletes it after the test.
         let directory = tempfile::tempdir().unwrap();
@@ -91,7 +78,6 @@ mod tests {
         // ACT: Execute the function we're testing.
         let result = read_file(&file_path);
         dbg!(&result);
-        
 
         // ASSERT: Verify that reading succeeded.
         assert!(result.is_ok());
@@ -102,7 +88,6 @@ mod tests {
 
     #[test]
     fn read_file_returns_error_for_missing_file() {
-
         // Create an isolated temporary directory.
         let directory = tempfile::tempdir().unwrap();
 
